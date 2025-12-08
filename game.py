@@ -662,7 +662,7 @@ class GameGUI:
         if self.agent.decision_tree and id(node) == id(self.agent.decision_tree[0]):
             is_current = True
             
-        # Calcular posición del mini tablero (centrado)
+        # Calcular posición del mini tablero
         board_x = int(node['screen_x']) - MINI_BOARD_SIZE // 2
         board_y = int(node['screen_y']) - MINI_BOARD_SIZE // 2
         
