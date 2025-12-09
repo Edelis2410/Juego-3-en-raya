@@ -35,15 +35,16 @@ BOARD_OFFSET_X = (LEFT_PANEL_WIDTH - BOARD_WIDTH) // 2
 BOARD_OFFSET_Y = (WINDOW_HEIGHT - BOARD_HEIGHT) // 2
 
 # Mini tableros para el grafo
-MINI_CELL_SIZE = 14
+MINI_CELL_SIZE = 16
 MINI_BOARD_SIZE = MINI_CELL_SIZE * 3
 
 font_title = pygame.font.SysFont('Arial Black', 38, bold=True)
 font_subtitle = pygame.font.SysFont('Arial', 24, bold=True)
 font_medium = pygame.font.SysFont('Arial', 20)
 font_small = pygame.font.SysFont('Arial', 16)
-font_tiny = pygame.font.SysFont('Arial', 10)
-font_micro = pygame.font.SysFont('Arial', 8)
+font_tiny = pygame.font.SysFont('Arial', 12)
+font_micro = pygame.font.SysFont('Arial', 10)
+font_legend = pygame.font.SysFont('Arial', 16)
 
 
 class GameState:
@@ -110,7 +111,7 @@ class MinimaxAgent:
         self.nodes_visited = 0
         self.best_move = None
         self.decision_tree = []
-        self.max_tree_depth = 3
+        self.max_tree_depth = 6 
         self.max_children_display = 4
 
     def reset(self):
@@ -137,16 +138,17 @@ class MinimaxAgent:
         return None
 
     def evaluate(self, state):
-        """Evalúa solo estados terminales: +1 (MAX gana), -1 (MIN gana), 0 (empate)"""
+    
         winner = state.check_winner()
-        if winner == 'O':  # IA (MAX) gana
+        if winner == 'O':  # Victoria de la IA
             return 1
-        elif winner == 'X':  # Humano (MIN) gana
+        elif winner == 'X':  # Victoria del jugador humano
             return -1
-        else:  # Empate o no terminal
+        elif winner == 'Tie':  # Empate
             return 0
+        return None  # No hay evaluación para estados no terminales
 
-    def minimax(self, state, depth, maximizing_player, node, max_depth=3):
+    def minimax(self, state, depth, maximizing_player, node, max_depth=6):
         self.nodes_visited += 1
         node['board'] = [row[:] for row in state.board]
         node['depth'] = depth
@@ -158,31 +160,40 @@ class MinimaxAgent:
         node['thread'] = None
         node['offset'] = 0
 
-        # Si es estado terminal, evaluar
+        # Solo evaluamos si el estado es terminal
         if state.is_terminal():
             score = self.evaluate(state)
             node['score'] = score
             node['terminal'] = True
             return score
-            
-        # Si alcanzamos profundidad máxima y no es terminal, evaluar como 0
+        
+        # Si alcanzamos la profundidad máxima, continuamos explorando hasta terminales
+        # pero limitamos la visualización
         if depth >= max_depth:
-            score = 0  # Estado no terminal en profundidad máxima
-            node['score'] = score
-            node['terminal'] = False
-            return score
+            # No retornamos valor, continuamos explorando pero con menos hijos para visualización
+            pass
 
         if maximizing_player:
             best_val = -math.inf
             best_move = None
             empty_cells = state.get_empty_cells()
+
+            # Ordenar movimientos para explorar primero los más prometedores (sin heurística)
+            # Simplemente usamos un orden central primero
+            center_first = []
+            corners = []
+            edges = []
+            for (row, col) in empty_cells:
+                if (row, col) == (1, 1):
+                    center_first.append((row, col))
+                elif (row, col) in [(0, 0), (0, 2), (2, 0), (2, 2)]:
+                    corners.append((row, col))
+                else:
+                    edges.append((row, col))
             
-            # Ordenar movimientos por posición para consistencia
-            empty_cells.sort()
-            
-            # Limitar número de hijos para visualización
-            limited_moves = empty_cells[:self.max_children_display]
-            
+            ordered_moves = center_first + corners + edges
+            limited_moves = ordered_moves[:self.max_children_display]
+
             for (row, col) in limited_moves:
                 new_state = state.copy()
                 new_state.board[row][col] = 'O'
@@ -205,10 +216,16 @@ class MinimaxAgent:
 
                 val = self.minimax(new_state, depth + 1, False, child_node, max_depth)
 
-                if val > best_val:
+                # Solo actualizamos si val no es None
+                if val is not None and val > best_val:
                     best_val = val
                     best_move = (row, col)
 
+            # Si no encontramos valores, continuamos explorando
+            if best_val == -math.inf:
+                # Continuamos la búsqueda pero con un valor neutral temporal
+                return 0
+                
             node['score'] = best_val
             if depth == 0:
                 node['best_move'] = best_move
@@ -217,13 +234,22 @@ class MinimaxAgent:
         else:
             best_val = math.inf
             empty_cells = state.get_empty_cells()
+
+            # Mismo ordenamiento para MIN
+            center_first = []
+            corners = []
+            edges = []
+            for (row, col) in empty_cells:
+                if (row, col) == (1, 1):
+                    center_first.append((row, col))
+                elif (row, col) in [(0, 0), (0, 2), (2, 0), (2, 2)]:
+                    corners.append((row, col))
+                else:
+                    edges.append((row, col))
             
-            # Ordenar movimientos por posición para consistencia
-            empty_cells.sort()
-            
-            # Limitar número de hijos para visualización
-            limited_moves = empty_cells[:self.max_children_display]
-            
+            ordered_moves = center_first + corners + edges
+            limited_moves = ordered_moves[:self.max_children_display]
+
             for (row, col) in limited_moves:
                 new_state = state.copy()
                 new_state.board[row][col] = 'X'
@@ -246,9 +272,12 @@ class MinimaxAgent:
 
                 val = self.minimax(new_state, depth + 1, True, child_node, max_depth)
 
-                if val < best_val:
+                if val is not None and val < best_val:
                     best_val = val
 
+            if best_val == math.inf:
+                return 0
+                
             node['score'] = best_val
             return best_val
 
@@ -280,89 +309,102 @@ class MinimaxAgent:
             else:
                 root['board'] = [row[:] for row in state.board]
 
+        # Usamos un enfoque iterativo: primero intentamos con profundidad completa
+        
+        empty_cells = len(state.get_empty_cells())
+        if empty_cells <= 6:  # Si quedan pocos movimientos, busca exhaustivo
+            self.max_tree_depth = 9
+        else:
+            self.max_tree_depth = 4
+
         self.minimax(state, 0, True, self.decision_tree[0], self.max_tree_depth)
 
-        return self.best_move if self.best_move else state.get_empty_cells()[0]
+        # Si no encontramos un mejor movimiento, usamos una estrategia simple
+        if not self.best_move:
+            # Estrategia básica: centro > esquinas > bordes
+            empty_cells = state.get_empty_cells()
+            if (1, 1) in empty_cells:
+                self.best_move = (1, 1)
+            else:
+                corners = [(0, 0), (0, 2), (2, 0), (2, 2)]
+                available_corners = [c for c in corners if c in empty_cells]
+                if available_corners:
+                    self.best_move = available_corners[0]
+                elif empty_cells:
+                    self.best_move = empty_cells[0]
+                    
+        return self.best_move
 
 
 class TreeLayout:
-    """Clase para manejar el layout jerárquico inteligente del árbol"""
-    
-    def __init__(self, horizontal_spacing=100, vertical_spacing=120):
+    def __init__(self, horizontal_spacing=110, vertical_spacing=150):
         self.horizontal_spacing = horizontal_spacing
         self.vertical_spacing = vertical_spacing
-        
+
     def calculate_positions(self, node, start_x, start_y, max_depth=3):
-        """Algoritmo de Reingold-Tilford simplificado para layout jerárquico"""
         if not node:
             return
-            
         self.first_walk(node, 0)
         self.second_walk(node, 0, 0)
         self.normalize_positions(node, start_x, start_y)
-        
+
     def first_walk(self, node, depth):
-        """Primer recorrido: calcular posiciones relativas"""
         if not node.get('children') or depth >= 3:
             node['x'] = 0
             node['mod'] = 0
             return
-            
+
         for child in node['children']:
             self.first_walk(child, depth + 1)
-            
+
         children = node['children']
         if len(children) == 1:
             children[0]['x'] = 0
         else:
             for i, child in enumerate(children):
                 child['x'] = i * self.horizontal_spacing - ((len(children) - 1) * self.horizontal_spacing) / 2
-                
+
     def second_walk(self, node, mod_sum, depth):
         if depth > 3:
             return
-            
+
         node['x'] += mod_sum
         node['mod'] += mod_sum
-        
+
         if node.get('children'):
             for child in node['children']:
                 self.second_walk(child, node['mod'], depth + 1)
-                
+
     def normalize_positions(self, node, start_x, start_y):
         min_x = float('inf')
         max_x = float('-inf')
-        
+
         def find_bounds(n, depth):
             nonlocal min_x, max_x
             if depth > 3:
                 return
-                
             min_x = min(min_x, n['x'])
             max_x = max(max_x, n['x'])
-            
             if n.get('children'):
                 for child in n['children']:
                     find_bounds(child, depth + 1)
-                    
+
         find_bounds(node, 0)
-        
+
         total_width = max_x - min_x
         if total_width == 0:
             total_width = 1
-            
+
         def apply_positions(n, depth):
             if depth > 3:
                 return
-                
             normalized_x = (n['x'] - min_x) / total_width if total_width > 0 else 0.5
             n['screen_x'] = start_x + normalized_x * (WINDOW_WIDTH - LEFT_PANEL_WIDTH - 100)
             n['screen_y'] = start_y + depth * self.vertical_spacing
-            
             if n.get('children'):
                 for child in n['children']:
                     apply_positions(child, depth + 1)
-                    
+
         apply_positions(node, 0)
 
 
@@ -373,7 +415,7 @@ class GameGUI:
         self.clock = pygame.time.Clock()
         self.state = GameState()
         self.agent = MinimaxAgent()
-        self.tree_layout = TreeLayout(horizontal_spacing=100, vertical_spacing=120)
+        self.tree_layout = TreeLayout(horizontal_spacing=110, vertical_spacing=150)
 
         button_width = 180
         button_x = BOARD_OFFSET_X + (BOARD_WIDTH - button_width) // 2
@@ -430,51 +472,44 @@ class GameGUI:
         self.screen.blit(title_shadow, (title_x + 2, BOARD_OFFSET_Y - 60))
         self.screen.blit(title, (title_x, BOARD_OFFSET_Y - 62))
 
-    def draw_mini_board(self, board, x, y, score=None, node_type="MAX", is_current=False, is_terminal=False):
-        """Dibuja un mini tablero sin círculo de fondo"""
+    def draw_mini_board(self, board, x, y, score=None, node_type="MAX",
+                        is_current=False, is_terminal=False, is_root=False):
         mini_board_rect = pygame.Rect(x, y, MINI_BOARD_SIZE, MINI_BOARD_SIZE)
-        
-        # Color de fondo según tipo de nodo (solo el borde cambia)
+
         if is_current:
             bg_color = ACCENT_YELLOW
             border_color = BLACK
             border_width = 3
         elif is_terminal:
             bg_color = WHITE
-            border_color = (255, 200, 0)  # Amarillo para terminales
+            border_color = (255, 200, 0)
             border_width = 2
         elif node_type == "MAX":
             bg_color = WHITE
-            border_color = PLAYER_O_COLOR  # Azul para MAX
+            border_color = PLAYER_O_COLOR
             border_width = 2
-        else:  # MIN
+        else:
             bg_color = WHITE
-            border_color = PLAYER_X_COLOR  # Rojo para MIN
+            border_color = PLAYER_X_COLOR
             border_width = 2
-            
-        # Dibujar fondo blanco
+
         pygame.draw.rect(self.screen, bg_color, mini_board_rect, border_radius=3)
         pygame.draw.rect(self.screen, border_color, mini_board_rect, border_width, border_radius=3)
 
-        # Dibujar líneas del mini tablero
         for i in range(1, 3):
-            # Línea vertical
             pygame.draw.line(self.screen, BOARD_LINES,
                              (x + i * MINI_CELL_SIZE, y + 2),
                              (x + i * MINI_CELL_SIZE, y + MINI_BOARD_SIZE - 2), 1)
-            # Línea horizontal
             pygame.draw.line(self.screen, BOARD_LINES,
                              (x + 2, y + i * MINI_CELL_SIZE),
                              (x + MINI_BOARD_SIZE - 2, y + i * MINI_CELL_SIZE), 1)
 
-        # Dibujar fichas
         for row in range(3):
             for col in range(3):
                 cell_x = x + col * MINI_CELL_SIZE
                 cell_y = y + row * MINI_CELL_SIZE
 
                 if board[row][col] == 'X':
-                    # Dibujar X
                     offset = 3
                     pygame.draw.line(self.screen, PLAYER_X_COLOR,
                                      (cell_x + offset, cell_y + offset),
@@ -483,35 +518,41 @@ class GameGUI:
                                      (cell_x + MINI_CELL_SIZE - offset, cell_y + offset),
                                      (cell_x + offset, cell_y + MINI_CELL_SIZE - offset), 2)
                 elif board[row][col] == 'O':
-                    # Dibujar O
                     pygame.draw.circle(self.screen, PLAYER_O_COLOR,
                                        (cell_x + MINI_CELL_SIZE // 2, cell_y + MINI_CELL_SIZE // 2),
                                        MINI_CELL_SIZE // 2 - 3, 2)
 
-        # Mostrar tipo de nodo arriba del tablero
-        if not is_terminal:
+        # Dibujar mejor movimiento solo en el nodo raíz
+        if is_root and self.agent.decision_tree and self.agent.decision_tree[0].get('best_move'):
+            best_move = self.agent.decision_tree[0]['best_move']
+            if best_move:
+                move_text = font_tiny.render(f"Mejor: ({best_move[0]},{best_move[1]})", True, ACCENT_YELLOW)
+                text_x = x + (MINI_BOARD_SIZE - move_text.get_width()) // 2
+                self.screen.blit(move_text, (text_x, y - 18))
+
+        if not is_terminal and not is_root:
             type_color = border_color
             type_text = font_tiny.render(node_type, True, type_color)
             text_x = x + (MINI_BOARD_SIZE - type_text.get_width()) // 2
-            self.screen.blit(type_text, (text_x, y - 15))
-        
-        # Mostrar valor debajo del tablero (solo +1, 0, -1)
-        if score is not None:
-            # Asegurar que el score sea +1, 0, o -1
-            if score > 0:
-                score = 1
-            elif score < 0:
-                score = -1
+            self.screen.blit(type_text, (text_x, y - 16))
+
+       
+        if score is not None and is_terminal:
+            score_int = int(score)
+            if score_int > 0:
+                score_str = f"+{score_int}"
+            elif score_int < 0:
+                score_str = f"{score_int}"
             else:
-                score = 0
-                
-            score_color = PLAYER_O_COLOR if score >= 0 else PLAYER_X_COLOR
-            score_text = font_tiny.render(f"{score:+d}", True, score_color)
+                score_str = f"{score_int}"
+
+            score_color = BLACK
+            score_text = font_tiny.render(score_str, True, score_color)
             text_x = x + (MINI_BOARD_SIZE - score_text.get_width()) // 2
-            self.screen.blit(score_text, (text_x, y + MINI_BOARD_SIZE + 5))
+            text_y = y + MINI_BOARD_SIZE + 4
+            self.screen.blit(score_text, (text_x, text_y))
 
     def draw_decision_tree(self):
-        # Área del árbol
         graph_x = LEFT_PANEL_WIDTH + 20
         graph_y = 70
         graph_width = WINDOW_WIDTH - graph_x - 20
@@ -527,46 +568,23 @@ class GameGUI:
         self.screen.blit(title_shadow, (title_x + 1, graph_y - 40))
         self.screen.blit(title, (title_x, graph_y - 41))
 
-        if self.agent.nodes_visited > 0:
-            status_text = font_small.render("Análisis completado", True, DARK_GRAY)
-        else:
-            status_text = font_small.render("Haz clic en el tablero para comenzar", True, DARK_GRAY)
-        self.screen.blit(status_text, (graph_x + 20, graph_y + 10))
-
-        self.draw_footer_panel(panel_rect)
-
         if self.agent.decision_tree:
             tree_start_x = graph_x + 20
-            tree_start_y = graph_y + 50
+            tree_start_y = graph_y + 60
             tree_width = graph_width - 40
-            tree_height = graph_height - 120
-            
+            tree_height = graph_height - 100
             self.draw_tree_structure(self.agent.decision_tree[0], tree_start_x, tree_start_y, tree_width, tree_height)
         else:
             no_tree = font_medium.render("Haz clic en el tablero para ver el análisis", True, DARK_GRAY)
             self.screen.blit(no_tree, (graph_x + graph_width // 2 - no_tree.get_width() // 2, graph_y + 150))
 
-    def draw_footer_panel(self, panel_rect):
-        # Dimensiones del panel de pie de página
-        footer_height = 50
-        footer_y = panel_rect.y + panel_rect.height - footer_height - 10
-        
-        legend_width = 450
-        stats_width = 200
-        
-        # Leyenda (izquierda)
-        legend_x = panel_rect.x + 15
-        legend_rect = pygame.Rect(legend_x, footer_y, legend_width, footer_height)
-        pygame.draw.rect(self.screen, WHITE, legend_rect, border_radius=8)
-        pygame.draw.rect(self.screen, PRIMARY_BLUE, legend_rect, 1, border_radius=8)
+        self.draw_legend_left(panel_rect)
+        self.draw_stats_right(panel_rect)
 
-        
-        stats_x = panel_rect.x + panel_rect.width - stats_width - 15
-        stats_rect = pygame.Rect(stats_x, footer_y, stats_width, footer_height)
-        pygame.draw.rect(self.screen, WHITE, stats_rect, border_radius=8)
-        pygame.draw.rect(self.screen, PRIMARY_BLUE, stats_rect, 1, border_radius=8)
+    def draw_legend_left(self, panel_rect):
+        legend_x = panel_rect.x + 20
+        legend_y = panel_rect.y + panel_rect.height - 50
 
-        # Dibujar leyenda
         legend_items = [
             (PLAYER_O_COLOR, "MAX (IA)"),
             (PLAYER_X_COLOR, "MIN (Humano)"),
@@ -574,111 +592,87 @@ class GameGUI:
             (BLACK, "Actual")
         ]
 
-        legend_start_x = legend_x + 10
-        legend_start_y = footer_y + (footer_height - 14) // 2
-        item_spacing = 110
+        start_x = legend_x
+        start_y = legend_y
+        item_spacing = 130
 
         for i, (color, text) in enumerate(legend_items):
-            x_pos = legend_start_x + i * item_spacing
+            x_pos = start_x + i * item_spacing
+            box_size = 16
+            pygame.draw.rect(self.screen, WHITE, (x_pos, start_y, box_size, box_size), border_radius=3)
+            pygame.draw.rect(self.screen, color, (x_pos, start_y, box_size, box_size), 2, border_radius=3)
 
-            # Cuadro de color
-            pygame.draw.rect(self.screen, WHITE, (x_pos, legend_start_y, 12, 12), border_radius=2)
-            pygame.draw.rect(self.screen, color, (x_pos, legend_start_y, 12, 12), 2, border_radius=2)
+            text_surface = font_legend.render(text, True, BLACK)
+            self.screen.blit(text_surface, (x_pos + box_size + 8, start_y - 2))
 
-            # Texto
-            text_surface = font_micro.render(text, True, BLACK)
-            self.screen.blit(text_surface, (x_pos + 16, legend_start_y - 2))
+    def draw_stats_right(self, panel_rect):
+        stats_x = panel_rect.x + panel_rect.width - 350
+        stats_y = panel_rect.y + panel_rect.height - 50
 
-        # Dibujar estadísticas
-        stats_start_x = stats_x + 15
-        stats_start_y = footer_y + (footer_height - 14) // 2
-        
-        # Nodos evaluados
-        nodes_text = font_micro.render(f"Nodos: {self.agent.nodes_visited}", True, BLACK)
-        self.screen.blit(nodes_text, (stats_start_x, stats_start_y - 10))
-        
-        # Profundidad
-        depth_text = font_micro.render(f"Profundidad: {self.agent.max_tree_depth}", True, BLACK)
-        self.screen.blit(depth_text, (stats_start_x, stats_start_y))
-        
-        # Hijos por nodo
-        children_text = font_micro.render(f"Hijos/nodo: {self.agent.max_children_display}", True, BLACK)
-        self.screen.blit(children_text, (stats_start_x, stats_start_y + 10))
+        if self.agent.nodes_visited > 0:
+            nodes_text = font_legend.render(f"Nodos evaluados: {self.agent.nodes_visited}", True, BLACK)
+            self.screen.blit(nodes_text, (stats_x, stats_y))
+
+            depth_text = font_legend.render(f"Profundidad: {self.agent.max_tree_depth}", True, BLACK)
+            self.screen.blit(depth_text, (stats_x, stats_y + 25))
+
+            children_text = font_legend.render(f"Hijos por nodo: {self.agent.max_children_display}", True, BLACK)
+            self.screen.blit(children_text, (stats_x + 180, stats_y))
+        else:
+            message = font_legend.render("Haz clic en el tablero para comenzar", True, DARK_GRAY)
+            message_x = stats_x - 50
+            message_y = stats_y + 10
+            self.screen.blit(message, (message_x, message_y))
 
     def draw_tree_structure(self, node, start_x, start_y, available_width, available_height):
-        """Dibuja el árbol con layout jerárquico inteligente"""
         if not node:
             return
-            
-        # Calcular posiciones usando algoritmo Reingold-Tilford
         self.tree_layout.calculate_positions(node, start_x, start_y)
-        
-        # Dibujar conexiones primero
         self.draw_connections(node)
-        
-        # Dibujar nodos después
         self.draw_nodes_recursive(node)
-        
-        # Mostrar mejor movimiento
-        if node.get('best_move'):
-            row, col = node.get('best_move')
-            best_text = font_small.render(f"Mejor: ({row},{col})", True, PLAYER_O_COLOR)
-            root_x = start_x + available_width // 2
-            self.screen.blit(best_text, (root_x - best_text.get_width() // 2, start_y - 25))
 
     def draw_connections(self, node):
-        """Dibuja líneas de conexión entre nodos"""
         if not node.get('children'):
             return
-            
+
         for child in node['children']:
             if 'screen_x' in node and 'screen_y' in node and 'screen_x' in child and 'screen_y' in child:
-                # Calcular punto de inicio y fin
                 start_x = node['screen_x']
                 start_y = node['screen_y'] + MINI_BOARD_SIZE // 2
                 end_x = child['screen_x']
                 end_y = child['screen_y'] - MINI_BOARD_SIZE // 2
-                
-                # Dibujar línea
                 pygame.draw.line(self.screen, SECONDARY_BLUE,
-                               (start_x, start_y),
-                               (end_x, end_y), 1)
-                
-            # Dibujar conexiones de los hijos recursivamente
+                                 (start_x, start_y),
+                                 (end_x, end_y), 1)
             self.draw_connections(child)
 
-    def draw_nodes_recursive(self, node):
-        """Dibuja nodos recursivamente"""
+    def draw_nodes_recursive(self, node, is_root=True):
         if 'screen_x' not in node or 'screen_y' not in node:
             return
-            
-        # Determinar tipo de nodo
+
         node_type = "MAX" if node.get('maximizing', True) else "MIN"
         if node.get('terminal', False):
             node_type = "TERM"
-            
-        # Verificar si es el nodo actual
+
         is_current = False
         if self.agent.decision_tree and id(node) == id(self.agent.decision_tree[0]):
             is_current = True
-            
-        # Calcular posición del mini tablero
+
         board_x = int(node['screen_x']) - MINI_BOARD_SIZE // 2
         board_y = int(node['screen_y']) - MINI_BOARD_SIZE // 2
-        
-        # Dibujar nodo
-        self.draw_mini_board(node['board'], 
-                           board_x, 
-                           board_y, 
-                           node.get('score'), 
-                           node_type, 
-                           is_current=is_current,
-                           is_terminal=node.get('terminal', False))
-        
-        # Dibujar hijos recursivamente
+
+        self.draw_mini_board(node['board'],
+                             board_x,
+                             board_y,
+                             node.get('score'),
+                             node_type,
+                             is_current=is_current,
+                             is_terminal=node.get('terminal', False),
+                             is_root=is_root)
+
         if node.get('children'):
             for child in node['children']:
-                self.draw_nodes_recursive(child)
+                self.draw_nodes_recursive(child, is_root=False)
 
     def draw_simple_button(self, rect, text, color, text_color=WHITE):
         pygame.draw.rect(self.screen, color, rect, border_radius=10)
@@ -757,12 +751,11 @@ class GameGUI:
                         running = False
 
             self.draw_dark_gradient_background()
-            
-            # Línea divisoria
-            pygame.draw.line(self.screen, PRIMARY_BLUE, 
-                            (LEFT_PANEL_WIDTH + 5, BOARD_OFFSET_Y - 30),
-                            (LEFT_PANEL_WIDTH + 5, BOARD_OFFSET_Y + BOARD_HEIGHT + 80), 1)
-            
+
+            pygame.draw.line(self.screen, PRIMARY_BLUE,
+                             (LEFT_PANEL_WIDTH + 5, BOARD_OFFSET_Y - 30),
+                             (LEFT_PANEL_WIDTH + 5, BOARD_OFFSET_Y + BOARD_HEIGHT + 80), 1)
+
             self.draw_classic_board()
             self.draw_decision_tree()
             self.draw_new_game_button()
@@ -797,3 +790,4 @@ class GameGUI:
 if __name__ == "__main__":
     game = GameGUI()
     game.run()
+    
