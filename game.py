@@ -178,7 +178,7 @@ class MinimaxAgent:
             best_move = None
             empty_cells = state.get_empty_cells()
 
-            # Ordenar movimientos para explorar primero los más prometedores (sin heurística)
+            # Ordenar movimientos para explorar primero los más prometedores
             # Simplemente usamos un orden central primero
             center_first = []
             corners = []
